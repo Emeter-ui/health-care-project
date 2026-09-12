@@ -338,14 +338,8 @@
   <!-- REGISTER VIEW -->
   <div id="registerView" style="display:none;">
     <div class="form-header">
-      <h2>Create Account</h2>
-      <p>Register as a patient or doctor</p>
-    </div>
-
-    <!-- Register role toggle -->
-    <div class="role-tabs" style="margin-bottom:20px;">
-      <button class="role-tab active" id="regPatientTab" onclick="setRegisterRole('patient', this)">🧑‍⚕️ Patient</button>
-      <button class="role-tab" id="regDoctorTab" onclick="setRegisterRole('doctor', this)">👨‍⚕️ Doctor</button>
+      <h2>Create Patient Account</h2>
+      <p>Register to book and manage your appointments</p>
     </div>
 
     <div class="form-row">
@@ -366,31 +360,20 @@
       <label>Phone Number</label>
       <input type="tel" id="rPhone" placeholder="080XXXXXXXX"/>
     </div>
-
-    <!-- Doctor-only field -->
-    <div class="form-group" id="specialtyGroup" style="display:none;">
-      <label>Specialty / Role</label>
-      <input type="text" id="rSpecialty" placeholder="e.g. General Practitioner, Pediatrician"/>
-    </div>
-
-    <!-- Patient-only fields -->
-    <div id="patientExtraFields">
-      <div class="form-row">
-        <div class="form-group">
-          <label>Date of Birth</label>
-          <input type="date" id="rDob"/>
-        </div>
-        <div class="form-group">
-          <label>Gender</label>
-          <select id="rGender">
-            <option value="">Select</option>
-            <option>Male</option>
-            <option>Female</option>
-          </select>
-        </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Date of Birth</label>
+        <input type="date" id="rDob"/>
+      </div>
+      <div class="form-group">
+        <label>Gender</label>
+        <select id="rGender">
+          <option value="">Select</option>
+          <option>Male</option>
+          <option>Female</option>
+        </select>
       </div>
     </div>
-
     <div class="form-group">
       <label>Password</label>
       <div class="input-wrap">
@@ -407,7 +390,7 @@
     </div>
 
     <div class="error-msg" id="registerError"></div>
-    <button class="btn-login" id="registerBtn" onclick="doRegister()">Create Patient Account</button>
+    <button class="btn-login" id="registerBtn" onclick="doRegister()">Create Account</button>
     <div class="divider">or</div>
     <div class="register-link">
       Already have an account? <a href="#" onclick="showLogin()">Sign in</a>
@@ -488,18 +471,6 @@
     }
   }
 
-  let registerRole = 'patient';
-
-  function setRegisterRole(role, btn) {
-    registerRole = role;
-    document.querySelectorAll('#registerView .role-tab').forEach(t => t.classList.remove('active'));
-    btn.classList.add('active');
-    const isDoctor = role === 'doctor';
-    document.getElementById('specialtyGroup').style.display    = isDoctor ? 'block' : 'none';
-    document.getElementById('patientExtraFields').style.display = isDoctor ? 'none'  : 'block';
-    document.getElementById('registerBtn').textContent = isDoctor ? 'Create Doctor Account' : 'Create Patient Account';
-  }
-
   function showRegister() {
     document.getElementById('loginView').style.display    = 'none';
     document.getElementById('registerView').style.display = 'block';
@@ -516,9 +487,8 @@
     const lastName  = document.getElementById('rLast').value.trim();
     const email     = document.getElementById('rEmail').value.trim();
     const phone     = document.getElementById('rPhone').value.trim();
-    const dob       = document.getElementById('rDob')?.value || '';
-    const gender    = document.getElementById('rGender')?.value || '';
-    const specialty = document.getElementById('rSpecialty')?.value.trim() || '';
+    const dob       = document.getElementById('rDob').value || '';
+    const gender    = document.getElementById('rGender').value || '';
     const password  = document.getElementById('rPw').value;
     const password2 = document.getElementById('rPw2').value;
 
@@ -527,9 +497,6 @@
 
     if (!firstName || !lastName || !email || !password) {
       showRegErr('Please fill in all required fields.'); return;
-    }
-    if (registerRole === 'doctor' && !specialty) {
-      showRegErr('Please enter your specialty.'); return;
     }
     if (password !== password2) { showRegErr('Passwords do not match.'); return; }
     if (password.length < 6)    { showRegErr('Password must be at least 6 characters.'); return; }
@@ -544,7 +511,7 @@
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ firstName, lastName, email, phone, dob, gender, specialty, password, registerRole })
+        body: JSON.stringify({ firstName, lastName, email, phone, dob, gender, password, registerRole: 'patient' })
       });
       const data = await res.json();
       if (!res.ok) { showRegErr(data.error || 'Registration failed.'); return; }
@@ -553,7 +520,7 @@
       showRegErr('Network error. Please try again.');
     } finally {
       btn.disabled    = false;
-      btn.textContent = registerRole === 'doctor' ? 'Create Doctor Account' : 'Create Patient Account';
+      btn.textContent = 'Create Account';
     }
   }
 </script>

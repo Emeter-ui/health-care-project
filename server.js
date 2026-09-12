@@ -182,7 +182,7 @@ app.post('/api/auth/register', async (req, res) => {
   if (password.length < 6)
     return res.status(400).json({ error: 'Password must be at least 6 characters.' });
 
-  const role  = registerRole === 'doctor' ? 'doctor' : 'patient';
+  const role  = 'patient'; // only patients can self-register; doctors are added by admin
   const name  = `${firstName.trim()} ${lastName.trim()}`;
   const lmail = email.trim().toLowerCase();
 
@@ -200,33 +200,17 @@ app.post('/api/auth/register', async (req, res) => {
     .single();
   if (uErr) return res.status(500).json({ error: uErr.message });
 
-  if (role === 'doctor') {
-    const { error: sErr } = await supabase.from('staff').insert({
-      user_id:    newUser.id,
-      name,
-      specialty:  specialty?.trim() || null,
-      phone:      phone?.trim()     || null,
-      email:      lmail,
-      duty_status:'On Duty',
-      role:       'doctor'
-    });
-    if (sErr) return res.status(500).json({ error: sErr.message });
+  const { error: pErr } = await supabase.from('patients').insert({
+    user_id: newUser.id,
+    name,
+    gender:  gender  || null,
+    phone:   phone?.trim() || null,
+    status:  'Active'
+  });
+  if (pErr) return res.status(500).json({ error: pErr.message });
 
-    req.session.user = { id: newUser.id, name, email: lmail, role: 'doctor' };
-    return res.status(201).json({ redirect: 'doctor.html', role: 'doctor', name });
-  } else {
-    const { error: pErr } = await supabase.from('patients').insert({
-      user_id: newUser.id,
-      name,
-      gender:  gender  || null,
-      phone:   phone?.trim() || null,
-      status:  'Active'
-    });
-    if (pErr) return res.status(500).json({ error: pErr.message });
-
-    req.session.user = { id: newUser.id, name, email: lmail, role: 'patient' };
-    return res.status(201).json({ redirect: 'patient.html', role: 'patient', name });
-  }
+  req.session.user = { id: newUser.id, name, email: lmail, role: 'patient' };
+  return res.status(201).json({ redirect: 'patient.html', role: 'patient', name });
 });
 
 // POST /api/auth/logout
