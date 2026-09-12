@@ -94,6 +94,7 @@ class SupabaseStore extends session.Store {
 }
 
 // ── Middleware ────────────────────────────────────────────────────────────────
+app.set('trust proxy', 1);
 app.use(express.json());
 app.use(express.static(path.join(__dirname)));
 
@@ -102,7 +103,12 @@ app.use(session({
   secret: process.env.SESSION_SECRET || 'shams-healthcare-secret-2026',
   resave: false,
   saveUninitialized: false,
-  cookie: { httpOnly: true, maxAge: 8 * 60 * 60 * 1000, sameSite: 'none', secure: process.env.NODE_ENV === 'production' }
+  cookie: {
+    httpOnly: true,
+    maxAge: 8 * 60 * 60 * 1000,
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    secure:   process.env.NODE_ENV === 'production'
+  }
 }));
 
 // ── Auth helpers ──────────────────────────────────────────────────────────────
