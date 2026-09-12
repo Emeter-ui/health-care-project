@@ -371,23 +371,21 @@ app.put('/api/appointments/:id', requireAuth, async (req, res) => {
 
   // Send confirmation email when doctor accepts (Pending → Confirmed)
   if (status === 'Confirmed') {
-    (async () => {
-      try {
-        const { data: pat } = await supabase.from('patients').select('name, user_id').eq('id', data.patient_id).maybeSingle();
-        const { data: stf } = await supabase.from('staff').select('name').eq('id', data.doctor_id).maybeSingle();
-        if (pat?.user_id) {
-          const { data: usr } = await supabase.from('users').select('email').eq('id', pat.user_id).maybeSingle();
-          if (usr?.email) {
-            await sendConfirmationEmail({
-              to: usr.email, patientName: pat.name,
-              doctorName: stf?.name || 'Your Doctor',
-              date: data.date, time: data.time, reason: data.reason
-            });
-            console.log(`[Email] Confirmation sent to ${usr.email}`);
-          }
+    try {
+      const { data: pat } = await supabase.from('patients').select('name, user_id').eq('id', data.patient_id).maybeSingle();
+      const { data: stf } = await supabase.from('staff').select('name').eq('id', data.doctor_id).maybeSingle();
+      if (pat?.user_id) {
+        const { data: usr } = await supabase.from('users').select('email').eq('id', pat.user_id).maybeSingle();
+        if (usr?.email) {
+          await sendConfirmationEmail({
+            to: usr.email, patientName: pat.name,
+            doctorName: stf?.name || 'Your Doctor',
+            date: data.date, time: data.time, reason: data.reason
+          });
+          console.log(`[Email] Confirmation sent to ${usr.email}`);
         }
-      } catch (e) { console.error('[Email] Failed:', e.message); }
-    })();
+      }
+    } catch (e) { console.error('[Email] Failed:', e.message); }
   }
 
   res.json({ id: data.id, status: data.status });
