@@ -55,6 +55,123 @@ async function sendConfirmationEmail({ to, patientName, doctorName, date, time, 
   });
 }
 
+async function sendReminderEmail({ to, patientName, doctorName, date, time, reason, daysUntil }) {
+  const transporter = getTransporter();
+  if (!transporter) {
+    console.log('[Email] Reminder skipped — configure EMAIL_FROM and EMAIL_PASS in .env');
+    return false;
+  }
+  const formattedDate = new Date(date + 'T00:00:00').toLocaleDateString('en-GB', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+  });
+  const countdown = daysUntil > 1
+    ? `in <strong>${daysUntil} days</strong>`
+    : daysUntil === 1 ? 'tomorrow' : 'soon';
+  await transporter.sendMail({
+    from: `"Smart Healthcare Clinic" <${process.env.EMAIL_FROM}>`,
+    to,
+    subject: `Appointment Reminder — ${formattedDate} at ${time}`,
+    html: `
+      <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
+        <div style="background:#805ad5;padding:24px;text-align:center;">
+          <h1 style="color:#fff;margin:0;font-size:22px;">🔔 Appointment Reminder</h1>
+        </div>
+        <div style="padding:28px;">
+          <h2 style="color:#1a202c;margin:0 0 8px;">You have an upcoming appointment</h2>
+          <p style="color:#4a5568;margin:0 0 24px;">Dear <strong>${patientName}</strong>, this is a friendly reminder from <strong>Dr. ${doctorName}</strong> that your appointment is ${countdown}.</p>
+          <div style="background:#f0f4f8;border-radius:10px;padding:20px;margin-bottom:24px;">
+            <table style="width:100%;border-collapse:collapse;">
+              <tr><td style="padding:8px 0;color:#718096;font-size:13px;width:38%;">Doctor</td><td style="padding:8px 0;color:#1a202c;font-weight:600;">${doctorName}</td></tr>
+              <tr><td style="padding:8px 0;color:#718096;font-size:13px;">Date</td><td style="padding:8px 0;color:#1a202c;font-weight:600;">${formattedDate}</td></tr>
+              <tr><td style="padding:8px 0;color:#718096;font-size:13px;">Time</td><td style="padding:8px 0;color:#1a202c;font-weight:600;">${time}</td></tr>
+              <tr><td style="padding:8px 0;color:#718096;font-size:13px;">Reason</td><td style="padding:8px 0;color:#1a202c;font-weight:600;">${reason}</td></tr>
+            </table>
+          </div>
+          <p style="color:#4a5568;font-size:13px;margin:0 0 8px;">⏰ Please arrive <strong>15 minutes</strong> before your appointment time.</p>
+          <p style="color:#4a5568;font-size:13px;margin:0;">📋 Bring any previous medical records or prescriptions.</p>
+        </div>
+        <div style="background:#f7fafc;padding:16px;text-align:center;border-top:1px solid #e2e8f0;">
+          <p style="color:#718096;font-size:12px;margin:0;">Smart Healthcare Clinic — Appointment Management System</p>
+        </div>
+      </div>`
+  });
+  return true;
+}
+
+// Look up patient email + doctor name for an appointment row
+async function fetchApptContacts(appt) {
+  const { data: pat } = await supabase
+    .from('patients').select('name, user_id').eq('id', appt.patient_id).maybeSingle();
+  const { data: stf } = await supabase
+    .from('staff').select('name').eq('id', appt.doctor_id).maybeSingle();
+  let email = null;
+  if (pat?.user_id) {
+    const { data: usr } = await supabase
+      .from('users').select('email').eq('id', pat.user_id).maybeSingle();
+    email = usr?.email || null;
+  }
+  return {
+    email,
+    patientName: pat?.name || 'Patient',
+    doctorName:  stf?.name || 'Your Doctor'
+  };
+}
+
+// Whole days between today (00:00 local) and appointment date (00:00 local)
+function daysUntilAppt(dateStr) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const appt = new Date(dateStr + 'T00:00:00');
+  return Math.round((appt - today) / (24 * 60 * 60 * 1000));
+}
+
+// ── Automatic 24-hour reminder job ────────────────────────────────────────────
+// Tracks the last time we sent a reminder for each appointment id, in memory.
+// A duplicate reminder after a server restart is acceptable; missed reminders
+// are not (so we also run once on startup).
+const lastReminderSent = new Map();
+const REMINDER_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const REMINDER_CHECK_MS    = 60 * 60 * 1000; // check hourly
+
+async function runReminderJob() {
+  try {
+    const { data: rows, error } = await supabase
+      .from('appointments')
+      .select('id, patient_id, doctor_id, date, time, reason, status')
+      .in('status', ['Confirmed', 'Scheduled']);
+    if (error) { console.error('[Reminder] Query failed:', error.message); return; }
+
+    const now = Date.now();
+    let sent = 0;
+    for (const appt of rows || []) {
+      const days = daysUntilAppt(appt.date);
+      if (days <= 1) continue; // requirement: more than 1 day away
+      const last = lastReminderSent.get(appt.id) || 0;
+      if (now - last < REMINDER_INTERVAL_MS) continue;
+
+      const { email, patientName, doctorName } = await fetchApptContacts(appt);
+      if (!email) continue;
+      try {
+        const ok = await sendReminderEmail({
+          to: email, patientName, doctorName,
+          date: appt.date, time: appt.time, reason: appt.reason,
+          daysUntil: days
+        });
+        if (ok) {
+          lastReminderSent.set(appt.id, now);
+          sent++;
+          console.log(`[Reminder] Sent to ${email} for appt ${appt.id} (${days}d out)`);
+        }
+      } catch (e) {
+        console.error(`[Reminder] Failed for appt ${appt.id}:`, e.message);
+      }
+    }
+    if (sent) console.log(`[Reminder] Cycle complete — ${sent} email(s) sent.`);
+  } catch (e) {
+    console.error('[Reminder] Job error:', e.message);
+  }
+}
+
 const app  = express();
 const PORT = process.env.PORT || 4500;
 
@@ -375,6 +492,43 @@ app.put('/api/appointments/:id', requireAuth, async (req, res) => {
   res.json({ id: data.id, status: data.status });
 });
 
+// POST /api/appointments/:id/remind  — doctor manually sends a reminder email
+app.post('/api/appointments/:id/remind', requireRole('doctor', 'admin'), async (req, res) => {
+  const { data: appt, error } = await supabase
+    .from('appointments')
+    .select('id, patient_id, doctor_id, date, time, reason, status')
+    .eq('id', req.params.id)
+    .maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  if (!appt)  return res.status(404).json({ error: 'Appointment not found.' });
+
+  // Doctors may only remind their own patients
+  if (req.session.user.role === 'doctor') {
+    const { data: staff } = await supabase
+      .from('staff').select('id').eq('user_id', req.session.user.id).maybeSingle();
+    if (!staff || staff.id !== appt.doctor_id)
+      return res.status(403).json({ error: 'Not your appointment.' });
+  }
+
+  const { email, patientName, doctorName } = await fetchApptContacts(appt);
+  if (!email) return res.status(400).json({ error: 'No email on file for this patient.' });
+
+  try {
+    const ok = await sendReminderEmail({
+      to: email, patientName, doctorName,
+      date: appt.date, time: appt.time, reason: appt.reason,
+      daysUntil: daysUntilAppt(appt.date)
+    });
+    if (!ok) return res.status(503).json({ error: 'Email is not configured on the server.' });
+    lastReminderSent.set(appt.id, Date.now());
+    console.log(`[Reminder] Manual reminder sent to ${email} for appt ${appt.id}`);
+    res.json({ ok: true, sentTo: email });
+  } catch (e) {
+    console.error('[Reminder] Manual send failed:', e.message);
+    res.status(500).json({ error: 'Failed to send reminder email.' });
+  }
+});
+
 // ════════════════════════════════════════════════════════════════════════════
 // STAFF
 // ════════════════════════════════════════════════════════════════════════════
@@ -436,6 +590,9 @@ if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`\n🏥 Smart Healthcare → http://localhost:${PORT}`);
     console.log(`   Database: Supabase (${process.env.SUPABASE_URL})\n`);
+    // Kick off reminder job: once at boot, then hourly (each appt is throttled to 24h)
+    runReminderJob();
+    setInterval(runReminderJob, REMINDER_CHECK_MS);
   });
 }
 

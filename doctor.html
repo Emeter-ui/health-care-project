@@ -663,7 +663,8 @@
         action = `<button class="btn btn-success btn-sm" onclick="acceptSchedAppt(${a.id}, this)">✓ Accept</button>
                   <button class="btn btn-danger btn-sm" style="margin-left:4px;" onclick="declineAppt(${a.id}, this)">✕</button>`;
       } else if (a.status === 'Confirmed' || a.status === 'Scheduled') {
-        action = `<button class="btn btn-success btn-sm" onclick="markSchedDone(${a.id}, this)">Mark Done</button>`;
+        action = `<button class="btn btn-success btn-sm" onclick="markSchedDone(${a.id}, this)">Mark Done</button>
+                  <button class="btn btn-sm" style="margin-left:4px;background:#805ad5;color:#fff;" onclick="sendReminder(${a.id}, this)" title="Email a reminder to the patient">🔔 Remind</button>`;
       }
       return `
         <tr id="row-${a.id}">
@@ -697,6 +698,20 @@
       if (a) a.status = 'Done';
       renderFullSchedule();
     } catch(e) { alert(e.message); }
+  }
+
+  async function sendReminder(id, btn) {
+    const original = btn.innerHTML;
+    try {
+      btn.disabled = true; btn.innerHTML = 'Sending…';
+      const r = await api(`/api/appointments/${id}/remind`, { method:'POST' });
+      btn.innerHTML = '✅ Sent';
+      alert(`Reminder email sent to ${r.sentTo}.`);
+      setTimeout(() => { btn.disabled = false; btn.innerHTML = original; }, 2500);
+    } catch(e) {
+      alert(e.message || 'Failed to send reminder.');
+      btn.disabled = false; btn.innerHTML = original;
+    }
   }
 
   // ── My Patients ────────────────────────────────────────────────────────────
